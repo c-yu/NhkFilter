@@ -21,6 +21,7 @@ namespace NhkFilter
     {
         public string title;
         public string url;
+        public DateTime puttime;
     }
 
     class Program
@@ -47,7 +48,7 @@ namespace NhkFilter
             }
             catch (Exception e)
             {
-                Console.WriteLine("下载rss内容出错:"+e.Message);
+                Console.WriteLine("下载rss内容出错:" + e.Message);
             }
             Console.WriteLine("Rss下载完成");
             return content;
@@ -55,6 +56,7 @@ namespace NhkFilter
 
         static List<DataItem> ProcessRssContent(string content)
         {
+            DateTime lastTime = GetLasttime();
             List<DataItem> itemList = new List<DataItem>();
             XmlDocument xd = new XmlDocument();
             try
@@ -65,40 +67,77 @@ namespace NhkFilter
                 {
                     XmlNode titleNode = itemNode.SelectSingleNode("title");
                     XmlNode enclosureNode = itemNode.SelectSingleNode("enclosure");
-                    DataItem item;// = new DataItem();
+                    XmlNode dateNode = itemNode.SelectSingleNode("pubDate");
+                    DataItem item;
                     item.title = titleNode.InnerText;
                     item.url = enclosureNode.Attributes["url"].Value;
-                    itemList.Add(item);
+                    item.puttime = DateTime.Parse(dateNode.InnerText);
+                    if (lastTime.CompareTo(item.puttime) < 0)
+                    {
+                        itemList.Add(item);
+                    }
                 }
             }
             catch (Exception e)
             {
-                Console.Write("处理rss内容出错:"+e.Message);
+                Console.Write("处理rss内容出错:" + e.Message);
             }
             Console.WriteLine("Rss分析完成");
+            if (itemList.Count == 0) {
+                Console.WriteLine("Rss内容没有更新");
+                Console.Read();
+                System.Environment.Exit(0);
+            }
             return itemList;
+        }
+
+        static MySqlConnection GetConnection()
+        {
+            MySqlConnection conn = null;
+            string connStr = "server=localhost;uid=root;pwd=passpass;database=nhk;charset=utf8";
+            conn = new MySqlConnection(connStr);
+            return conn;
+        }
+
+        static DateTime GetLasttime()
+        {
+            MySqlConnection conn = GetConnection();
+            DateTime lasttime = new DateTime();
+            try
+            {
+                conn.Open();
+                string sql = "select max(puttime) from radionews";
+                MySqlCommand cmd = new MySqlCommand(sql, conn);
+                lasttime = (DateTime)cmd.ExecuteScalar();
+            }
+            catch (Exception e)
+            {
+                Console.WriteLine("获取数据库最后更新时间失败:" + e.Message);
+            }
+            return lasttime;
         }
 
         static void SaveToDatabase(List<DataItem> items)
         {
-            string connStr = "server=localhost;uid=root;pwd=passpass;database=nhk;charset=utf8";
             string sql = null;
             try
             {
-                MySqlConnection conn = new MySqlConnection(connStr);
+                MySqlConnection conn = GetConnection();
                 conn.Open();
                 foreach (DataItem item in items)
                 {
-                    sql = "insert into radionews(title,url) values(\"" + item.title + "\",\"" + item.url + "\")";
+                    sql = "insert into radionews(title,url,puttime) values(\"" + item.title + "\",\"" + item.url + "\",\"" + item.puttime.ToString() + "\")";
                     MySqlCommand cmd = new MySqlCommand(sql, conn);
                     cmd.ExecuteNonQuery();
                     Console.WriteLine(item.title);
                     Console.WriteLine(item.url);
+                    Console.WriteLine(item.puttime);
                 }
                 conn.Close();
             }
-            catch (Exception e) {
-                Console.WriteLine("保存数据出错:"+sql);
+            catch (Exception e)
+            {
+                Console.WriteLine("保存数据出错:" + sql);
             }
             Console.WriteLine("保存数据库完成");
 
@@ -113,9 +152,11 @@ namespace NhkFilter
                 conn.Open();
                 MySqlCommand cmd = new MySqlCommand("select * from radionews", conn);
                 MySqlDataReader reader = cmd.ExecuteReader();
-                while (reader.Read()) {
+                while (reader.Read())
+                {
                     Console.WriteLine(reader["title"]);
                     Console.WriteLine(reader["url"]);
+                    Console.WriteLine(reader["puttime"]);
                 }
                 conn.Close();
             }
@@ -124,9 +165,6 @@ namespace NhkFilter
                 Console.WriteLine(e.Message);
             }
             Console.WriteLine("读取数据库完成");
-
         }
-
-        
     }
 }
